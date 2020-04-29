@@ -1,0 +1,901 @@
+/*******************************************************************************
+Copyright (c) 2019 HCL Technologies
+*******************************************************************************/
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+)
+
+var link = ""
+var repo1 = ""
+
+var maxLoops = 40
+var delays = 7 * time.Second
+
+func TestMain(m *testing.M) {
+	var env = os.Getenv("ENVIRONMENT")
+
+	if env == "test" {
+		link = "https://sandbox.test.pnpsofy.com"
+		repo1 = "https://cm-sol.test.pnpsofy.com"
+	} else if env == "dev" {
+		link = "https://sandbox.sofy.dev"
+		repo1 = "https://cm.sofy.dev"
+	} else {
+		link = "http://localhost:9000"
+		repo1 = "https://cm-sol.test.pnpsofy.com"
+	}
+	if link == "http://localhost:9000" {
+		go main()
+		duration, _ := time.ParseDuration("35000ms")
+		time.Sleep(duration)
+		log.Printf("Done sleeping at %v", time.Now().UTC())
+	}
+	log.Printf("Tests are running using: " + link + "/sandboxes")
+	code := m.Run()
+	os.Exit(code)
+}
+
+//First POST a solution to be used for other tests
+func PostSolutionTest() {
+	var postWithCorrectParameters200 = []byte(`{
+			"name": "test-sb-dummy",
+			"description":"postWithCorrectParameters200",
+			"versions": [
+			{
+				"number": "1.0.0",
+				"dependencies": [
+				{
+					"name": "snoop-test",
+					"version": "0.1.1",
+					"repository": "https://cm.test.pnpsofy.com/"
+				}
+				],
+				"apiGateway": {
+					"enabled": true,
+					"serviceRoutes": [
+						{
+						"service": "snoop",
+						"route": "snoop"
+						}
+					]
+				},
+				"monitoring": {
+				"dashboard": false
+				}
+			}
+			]
+		}`)
+
+	req, _ := http.NewRequest("POST", "https://sol.test.pnpsofy.com/solutions", bytes.NewBuffer(postWithCorrectParameters200))
+	//add the Accept header to note this is a programmatic client request
+	req.Header.Set("Accept", "application/json")
+
+	response := executeRequest(req)
+
+	timeout := time.After(5 * time.Minute)
+	tick := time.Tick(500 * time.Millisecond)
+
+	if response.StatusCode == 200 {
+
+		req, _ = http.NewRequest("GET", "/solutions/test-sb-dummy/versions/1.0.0", nil)
+		req.Header.Add("Accept", "application/json")
+
+		// Keep trying until we're timed out or got a result or got an error
+		for {
+			response := executeRequest(req)
+			select {
+			// Got a timeout! fail with a timeout error
+			case <-timeout:
+				fmt.Errorf("Time out and couldn't find solution: test-sb-dummy")
+			// Got a tick, we should check on doSomething()
+			case <-tick:
+				if response.StatusCode == 200 {
+					fmt.Printf("Success")
+				}
+			}
+			//submitRequest every 5 seconds
+			time.Sleep(5 * time.Second)
+		}
+	}
+}
+
+func GetSolution() {
+	req, _ := http.NewRequest("GET", "https://sol.test.pnpsofy.com/solutions/test-sb-dummy", nil)
+	response := executeRequest(req)
+
+	if response.StatusCode == 200 {
+		log.Printf("success getting solution")
+	} else {
+		log.Printf("There was an error getting the solution")
+	}
+}
+
+//function to delete created solution after it has been posted and tested
+func DeleteSolution() {
+	req, _ := http.NewRequest("DELETE", "https://sol.test.pnpsofy.com/solutions/test-sb-dummy", nil)
+	response := executeRequest(req)
+
+	if response.StatusCode == 200 {
+		log.Printf("success deleting the solution")
+	} else {
+		log.Printf("There was an error deleting the solution")
+	}
+
+}
+
+//Quick Post of Added Solution to Sandbox
+func TestDeploySolutionSandbox(t *testing.T) {
+	//Post solution
+	log.Printf("Posting the Solution Now")
+	PostSolutionTest()
+	//wait for solution to be posted
+	time.Sleep(45 * time.Second)
+	GetSolution()
+	log.Printf("Sleep Done")
+	payload := []byte(`{"ID": "quick-sandbox","Helm": "https://cm-sol.test.pnpsofy.com/charts/test-sb-dummy-1.0.0.tgz","Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	//Get status of Helm Install
+	pass := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/status/quick-sandbox", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"responseCode":201`) {
+			log.Printf("Successful get on sandbox status")
+			pass = true
+		} else {
+			log.Printf("*********Attempting to get status of the helm install, \nBody: %s", body)
+		}
+		if pass == true {
+			break
+		}
+	}
+	if pass == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+	//Get Status of the deployment itself
+	pass2 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/quick-sandbox", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"status":"deployed"`) {
+			log.Printf("Success")
+			pass2 = true
+		} else {
+			// body, _ := ioutil.ReadAll(response.Body)
+			log.Printf("*************Not done deploying, \nBody: %s", body)
+		}
+		if pass2 == true {
+			break
+		}
+	}
+
+	if pass2 == false {
+		t.Errorf("Error occured, the second operation has timed out")
+	}
+
+	// uncomment when we have a dummy solution (not service, that's always hosted). For this test to pass we need a solution with ambassador
+	pass3 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/quick-sandbox", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `sofy-home.`) {
+			log.Printf("Success")
+			pass3 = true
+		} else {
+			// body, _ := ioutil.ReadAll(response.Body)
+			log.Printf("*************Not done deploying, \nBody: %s", body)
+		}
+		if pass3 == true {
+			break
+		}
+	}
+
+	if pass3 == false {
+		t.Errorf("Error occured, the second operation has timed out")
+	}
+
+	req, _ = http.NewRequest("DELETE", link+"/sandboxes/quick-sandbox", nil)
+	response = executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	DeleteSolution()
+
+}
+
+//Testing successful POST for a Sandbox from GetPostHandler (Test cluster). Pass 3 checks for sofy-home link
+func TestPostSandbox2(t *testing.T) {
+	payload := []byte(`{"ID": "test-dummy-1","Helm": "stable/chartmuseum","Flag": "--set service.type=LoadBalancer","Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	//Get status of Helm Install
+	pass := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/status/test-dummy-1", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"responseCode":201`) {
+			log.Printf("Successful get on sandbox status")
+			pass = true
+		} else {
+			log.Printf("*********Attempting to get status of the helm install, \nBody: %s", body)
+		}
+		if pass == true {
+			break
+		}
+	}
+	if pass == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+	//Get Status of the deployment itself
+	pass2 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-dummy-1", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"status":"deployed"`) {
+			log.Printf("Success")
+			pass2 = true
+		} else {
+			// body, _ := ioutil.ReadAll(response.Body)
+			log.Printf("*************Not done deploying, \nBody: %s", body)
+		}
+		if pass2 == true {
+			break
+		}
+	}
+
+	if pass2 == false {
+		t.Errorf("Error occured, the second operation has timed out")
+	}
+
+	// uncomment when we have a dummy solution (not service, that's always hosted). For this test to pass we need a solution with ambassador
+	pass3 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-dummy-1", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `sofy-home.`) {
+			log.Printf("Success")
+			pass3 = true
+		} else {
+			// body, _ := ioutil.ReadAll(response.Body)
+			log.Printf("*************Not done deploying, \nBody: %s", body)
+		}
+		if pass3 == true {
+			break
+		}
+	}
+
+	if pass3 == false {
+		t.Errorf("Error occured, the second operation has timed out")
+	}
+}
+
+//Testing a second Succesful POST for a Sandbox from GetPostHandler
+func TestPostAnotherSandbox(t *testing.T) {
+	payload := []byte(`{"ID": "test-deploy-b","Helm": "https://cm-sol.test.pnpsofy.com/charts/snoop-test-0.1.0.tgz","Expiration": "5"}`)
+	log.Printf("The sandbox being posted is: " + repo1 + "/charts/snoop-test-0.1.0.tgz")
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	//Get Status
+	pass := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/status/test-deploy-b", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"responseCode":201`) {
+			log.Printf("Successful get on sandbox status")
+			pass = true
+		}
+		if pass == true {
+			break
+		}
+	}
+	if pass == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+	//Get Deployment
+	pass2 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-deploy-b", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"status":"deployed"`) {
+			log.Printf("Success")
+			pass2 = true
+		} else {
+			// body, _ := ioutil.ReadAll(response.Body)
+			log.Printf("*************Not done deploying, \nBody: %s", body)
+		}
+		if pass2 == true {
+			break
+		}
+
+	}
+	if pass2 == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+}
+
+//Test for patch function
+func TestPatchSandbox(t *testing.T) {
+	payload := []byte(`{"Helm": "` + repo1 + `/charts/snoop-test-0.1.0.tgz","Flag": "--set service.https.enabled=false","Expiration": "7"}`)
+
+	req, _ := http.NewRequest("PATCH", link+"/sandboxes/test-deploy-b", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); !strings.Contains(bodyString, `{"Name":"test-deploy-b"}`) {
+		t.Errorf("Expected body with name 'test-deploy-b'. Got [%s]", body)
+	}
+
+	//Create a while loop that runs a GET every 2  seconds to check to see if test-dummy-1 expiration is set to 7.
+	//Have a timeout after 15 seconds
+	pass := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-deploy-b", nil)
+		response := executeRequest(req)
+
+		body, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			t.Errorf("Error has occured: %s ", err)
+		}
+
+		time.Sleep(delays)
+
+		if bodyString := string(body); strings.Contains(bodyString, `"remainingTime":"07 hrs and 00 minutes"`) {
+			pass = true
+		}
+		if pass == true {
+			break
+		}
+	}
+	if pass == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+}
+
+//Test GET Sandboxes ALL
+func TestGetAllWithSandbox(t *testing.T) {
+	req, _ := http.NewRequest("GET", link+"/sandboxes", nil)
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusOK, response.StatusCode)
+
+	// if body := response.Body.String();
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+
+	if bodyString := string(body); !strings.ContainsAny(bodyString, `{"name":"test-dummy-1","status":"deployed"},{"name":"test-deploy-b","status":"deployed"}`) {
+		t.Errorf("Expected a body with test-dummy-1. Got [%s]", bodyString)
+	}
+}
+
+//Test a bad POST and see if Status remains
+func TestBadPOSTandStatus(t *testing.T) {
+	payload := []byte(`{"ID": "test-deploy-c","Helm": "` + repo1 + `/charts/snp-0.1.2.tgz", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	//Check to see if status remains even when it failed
+	pass := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/status/test-deploy-c", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"responseCode":500`) {
+			log.Printf("Successful get on sandbox status")
+			pass = true
+		}
+		if pass == true {
+			break
+		}
+	}
+
+	if pass == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+	//Make sure a GET on sandbox returns 404
+	req, _ = http.NewRequest("GET", link+"/sandboxes/test-deploy-c", nil)
+	response = executeRequest(req)
+
+	log.Printf("Checking status code of test-deploy-c")
+	checkResponseCode(t, http.StatusOK, response.StatusCode)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+
+	if bodyString := string(body); !strings.ContainsAny(bodyString, `{"name":"test-deploy-c","status":"failed","message":"Sandbox is being deleted "}`) {
+		t.Errorf("Expected a body with test-dummy-c. Got [%s]", bodyString)
+	}
+
+	//Confirm that status sticks around
+	pass2 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/status/test-deploy-c", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"responseCode":500`) {
+			log.Printf("Successful get on sandbox status")
+			pass2 = true
+		}
+		if pass2 == true {
+			break
+		}
+	}
+
+	if pass2 == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+	//Check to make sure that the sat status isn't there to be deleted
+	req, _ = http.NewRequest("DELETE", link+"/sandboxes/test-deploy-c", nil)
+	response = executeRequest(req)
+
+	checkResponseCode(t, http.StatusNotFound, response.StatusCode)
+
+	//Make sure status was deleted
+	time.Sleep(3 * time.Second)
+	pass3 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-deploy-c", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		if response.StatusCode == http.StatusNotFound {
+			pass3 = true
+		}
+		if pass3 == true {
+			break
+		}
+	}
+	if pass3 == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+}
+
+//Testing function that covers all multiple key errors
+func TestMultipleKeys(t *testing.T) {
+	log.Printf("Checking that you can't post multiple IDs")
+	payload := []byte(`{ID": "id1", "ID": "id2","Helm": "stable/chartmuseum","Flags": "--set service.type=LoadBalancer", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+
+	log.Printf("Checking that you can't post multiple HelmCharts")
+	payload = []byte(`{ID": "id1","Helm": "stable/chartmuseum" ,"Helm": "stable/chartmuseum","Flags": "--set service.type=LoadBalancer", "Expiration": "5"}`)
+
+	req, _ = http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response = executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+
+	log.Printf("Checking that you can't post multiple Flags")
+	payload = []byte(`{ID": "id1","Helm": "stable/chartmuseum", "Flags": "--set service.https.enabled=false",Flags": "--set service.type=LoadBalancer", "Expiration": "5"}`)
+
+	req, _ = http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response = executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+
+	log.Printf("Checking that you can't post multiple Expirations")
+	payload = []byte(`{ID": "id1","Helm": "stable/chartmuseum",Flags": "--set service.type=LoadBalancer", "Expiration": "5", "Expiration": "5"}`)
+
+	req, _ = http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response = executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+}
+
+//Testing expiration integer Error POST for a Sandbox
+func TestInvalidExpirationPOSTSandbox(t *testing.T) {
+	payload := []byte(`{"ID": "test-dummy-3","Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Expiration": "5.5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+
+	req, _ = http.NewRequest("GET", link+"/sandboxes", nil)
+	response = executeRequest(req)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); strings.Contains(bodyString, `"test-dummy-3":{"App":{},"Name":"test-dummy-3","Expiration":"5.5"}`) {
+		t.Errorf("Error has occured. Expiration should not be set to 5.5")
+	}
+}
+
+//Testing empty POST returns error
+func TestEmptyPOSTSandbox(t *testing.T) {
+	payload := []byte(`{}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+}
+
+// Testing invalid spaces in POST Error
+func TestInvalidSpaceIDPOSTSandbox(t *testing.T) {
+	payload := []byte(`{"ID": "test dummy","Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+	req, _ = http.NewRequest("GET", link+"/sandboxes", nil)
+	response = executeRequest(req)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); strings.Contains(bodyString, `{"name":"test dummy","resourceLinkk":`) {
+		t.Errorf("Error has occured. test dummy should not exist")
+	}
+}
+
+//Testing error in spaces for Helm Chart
+func TestInvalidSpaceHelmPOSTSandbox(t *testing.T) {
+	payload := []byte(`{"ID": "test-dummy-sp","Helm": "` + repo1 + `/  charts/test-sb-dummysol-1.0.0.tgz", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+	req, _ = http.NewRequest("GET", link+"/sandboxes", nil)
+	response = executeRequest(req)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); strings.Contains(bodyString, `{"name":"test-dummy-sp","recourceLink":"`) {
+		t.Errorf("Error has occured. Test with space in helm chart should fail")
+	}
+}
+
+//Testing failure if there is no ID but there is a Helm chart
+func TestNoIDWithHelmPOST(t *testing.T) {
+	payload := []byte(`{"Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+}
+
+//Testing failure if there is an ID but not a Helm Chart
+func TestWithIDButNoHelmPOST(t *testing.T) {
+	payload := []byte(`{"ID": "test-dummy","Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+	req, _ = http.NewRequest("GET", link+"/sandboxes", nil)
+	response = executeRequest(req)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); strings.Contains(bodyString, `{"name":"test-dummy","resourceLink:"`) {
+		t.Errorf("Error has occured. Post without a hlem chart should fail")
+	}
+}
+
+//Testing invalid characters POST
+func TestInvalidCharactersPOSTSandbox(t *testing.T) {
+	payload := []byte(`{"ID": "test****dummy","Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+	req, _ = http.NewRequest("GET", link+"/sandboxes", nil)
+	response = executeRequest(req)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); strings.Contains(bodyString, `{name":"test****dummy","resourceLink":`) {
+		t.Errorf("Error has occured. Post with invalid characters should fail")
+	}
+}
+
+//Testing name validation error POST for a Sandbox from GetPostHandler
+
+func TestValidationErrorPostSandbox(t *testing.T) {
+	payload := []byte(`{"ID": "testdummywithtoomanycharacters","Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+	req, _ = http.NewRequest("GET", link+"/sandboxes", nil)
+	response = executeRequest(req)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); strings.Contains(bodyString, `{name":"testdummywithtoomanycharacters","resourceLink":`) {
+		t.Errorf("Error has occured. Post with too many characters should fail")
+	}
+}
+
+//Testing conflict POST for a Sandbox from GetPostHandler
+func TestConflictPostSandbox(t *testing.T) {
+	payload := []byte(`{"ID": "test-dummy-1","Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("POST", link+"/sandboxes", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusConflict, response.StatusCode)
+}
+
+func TestInvalidExpirationPATCHSandbox(t *testing.T) {
+	payload := []byte(`{"Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Flag": "--set service.https.enabled=false", "Expiration": "5.5"}`)
+
+	req, _ := http.NewRequest("PATCH", link+"/sandboxes/test-dummy-1", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusBadRequest, response.StatusCode)
+}
+
+//Test to make sure the failed patch didn't change the current sandbox
+func TestGetAllAfterFailedPatchSandbox(t *testing.T) {
+	req, _ := http.NewRequest("GET", link+"/sandboxes", nil)
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusOK, response.StatusCode)
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Errorf("Error has occured: %s", err)
+	}
+	if bodyString := string(body); strings.Contains(bodyString, `{name":"test-dummy-1","resourceLink":`) {
+		t.Errorf("Body shouldn't contain [%s]. Expiration should be whole number", body)
+	}
+}
+
+//Test Patching a sandbox that doesn't exist
+func TestPatchNotFound(t *testing.T) {
+	payload := []byte(`{"Helm": "` + repo1 + `/charts/test-sb-dummysol-1.0.0.tgz", "Flag": "--set service.https.enabled=false", "Expiration": "5"}`)
+
+	req, _ := http.NewRequest("PATCH", link+"/sandboxes/notFound", bytes.NewBuffer(payload))
+	req.Header.Add("Content-Type", "application/json")
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusNotFound, response.StatusCode)
+}
+
+//Test for deleting test-dummy-1 sandbox
+func TestDeleteTestSandbox(t *testing.T) {
+	req, _ := http.NewRequest("GET", link+"/sandboxes/test-dummy-1", nil)
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusOK, response.StatusCode)
+
+	//add a sleep to ensure that the PATCH method finishes first. Otherwise will return a 409
+	// time.Sleep(10 * time.Second)
+	req, _ = http.NewRequest("DELETE", link+"/sandboxes/test-dummy-1", nil)
+	response = executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	pass2 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-dummy-1", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"status":"deleting"`) {
+			log.Printf("deleting")
+			pass2 = true
+		} else {
+			log.Printf("*************Not done deploying, \nBody: %s", body)
+		}
+		if pass2 == true {
+			break
+		}
+
+	}
+	if pass2 == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+	pass := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-dummy-1", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		if response.StatusCode == http.StatusNotFound {
+			pass = true
+		}
+		if pass == true {
+			break
+		}
+	}
+	if pass == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+}
+
+//Test for deleting test-deploy-b sandbox
+func TestDeleteSecondSandbox(t *testing.T) {
+	req, _ := http.NewRequest("GET", link+"/sandboxes/test-deploy-b", nil)
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusOK, response.StatusCode)
+
+	req, _ = http.NewRequest("DELETE", link+"/sandboxes/test-deploy-b", nil)
+	response = executeRequest(req)
+
+	checkResponseCode(t, http.StatusAccepted, response.StatusCode)
+
+	pass2 := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-deploy-b", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+		body, _ := ioutil.ReadAll(response.Body)
+		if bodyString := string(body); strings.Contains(bodyString, `"status":"deleting"`) {
+			log.Printf("deleting")
+			pass2 = true
+		} else {
+			log.Printf("*************Not done deploying, \nBody: %s", body)
+		}
+		if pass2 == true {
+			break
+		}
+
+	}
+	if pass2 == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+
+	pass := false
+	for i := 0; i < maxLoops; i++ {
+		req, _ := http.NewRequest("GET", link+"/sandboxes/test-deploy-b", nil)
+		response := executeRequest(req)
+
+		time.Sleep(delays)
+
+		if response.StatusCode == http.StatusNotFound {
+			pass = true
+		}
+		if pass == true {
+			break
+		}
+	}
+	if pass == false {
+		t.Errorf("Error occured, the operation has timed out")
+	}
+}
+
+//Test for deleting sandbox that doesn't exist
+func TestDeleteNotFound(t *testing.T) {
+	req, _ := http.NewRequest("DELETE", link+"/sandboxes/doesNotExist", nil)
+	response := executeRequest(req)
+
+	checkResponseCode(t, http.StatusNotFound, response.StatusCode)
+}
+
+func executeRequest(req *http.Request) *http.Response {
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("Error has occured: ", err)
+	}
+	return resp
+}
+func checkResponseCode(t *testing.T, expected, actual int) {
+	if expected != actual {
+		t.Errorf("Expected response code %d. Got %d\n", expected, actual)
+	}
+}
