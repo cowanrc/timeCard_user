@@ -3,11 +3,12 @@ package main
 import (
 	"log"
 
-	"github.com/labstack/echo"
-	"github.com/labstack/echo/middleware"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
+	log.Printf("Creating your time card application")
 	e := echo.New()
 	e.Pre(middleware.RemoveTrailingSlash())
 
@@ -20,4 +21,5 @@ func main() {
 
 	log.Printf("listening on port 8080")
 	e.Logger.Fatal((e.Start(":8080")))
+
 }
