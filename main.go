@@ -16,8 +16,10 @@ func main() {
 	e.Static("/explorer", "ui")
 
 	//routes
-	e.POST("/employee", CreateEmployeeHandler)
-	e.POST("/employee/ClockIn", ClockInHandler)
+	e.POST("/employees", CreateEmployeeHandler)
+	e.GET("/employees/:id", GetEmployeeHandler)
+	e.POST("/employees/ClockIn/:id", ClockInHandler)
+	e.POST("employees/ClockOut/:id", ClockOutHandler)
 
 	log.Printf("listening on port 8080")
 	e.Logger.Fatal((e.Start(":8080")))
