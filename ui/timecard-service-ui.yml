@@ -5,7 +5,7 @@ info:
   title: "Reed's Timecard Application"
 basePath: "/"
 paths:
-  /employee: 
+  /employees: 
     post:
       tags:
        - "employee"
@@ -18,7 +18,7 @@ paths:
       - "application/json"  
       parameters:
       - in: "body"
-        name: "body"
+        name: "Employee"
         description: "Create an employee using a name and the date of birth (DOB). This will return the employee's unique ID"
         schema:      # Request body contents
           $ref: '#/definitions/CreateEmployee'
@@ -31,7 +31,30 @@ paths:
           description: "Error in the POST payload resulted in a bad request."
           schema: 
             $ref: "#/definitions/Error"
-  /employee/ClockIn:
+  /employees/{id}:
+    get:
+      tags:
+        - employee
+      summary: "Allows you to retrieve specified employee's information"
+      description: ""
+      produces:
+      - "application/json"
+      parameters: 
+      - in: path
+        name: id
+        required: true
+        type: string
+        description: "The ID of the employee whose timecard you wish to access."
+      responses:
+        200:
+          description: "Employee information is returned."
+          schema: 
+            $ref: "#/definitions/Employee"
+        404:
+          description: "No employee with that ID exists."
+          schema:
+            $ref: "#/definitions/Error"
+  /employees/ClockIn/{id}:
     post:
       tags:
         - "timecard"
@@ -43,8 +66,8 @@ paths:
       produces:
       - "application/json" 
       parameters:
-      - in: "body"
-        name: "EmployeeId"
+      - in: path
+        name: id
         description: "Clock in as an employee"
         schema:
           $ref: "#/definitions/ClockIn"
@@ -70,6 +93,16 @@ definitions:
       required:
         - Name
         - DoB
+  Employee:
+    type: object
+    Properties:
+      Name:
+        type: string
+        example: John Smith
+      DoB:
+        type: string
+        example: 9/5/1994
+      ClockIn:
   ClockIn:
       type: object
       properties:
