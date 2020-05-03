@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -22,12 +21,12 @@ type NewEmployee struct {
 }
 
 type Employee struct {
-	Name        string        `json:"Name,omitempty"`
-	EmployeeID  int           `json:"employeeID,omitempty"`
-	ClockIn     string        `json:"clockIn,omitempty"`
-	ClockOut    string        `json:"clockOut,omitempty"`
-	TotalTime   time.Duration `json:"totalTime,omitempty"`
-	DateOfBirth string        `json:"DoB, omitempty"`
+	Name        string `json:"Name,omitempty"`
+	EmployeeID  int    `json:"employeeID,omitempty"`
+	ClockIn     string `json:"clockIn,omitempty"`
+	ClockOut    string `json:"clockOut,omitempty"`
+	TotalTime   string `json:"totalTime,omitempty"`
+	DateOfBirth string `json:"DoB, omitempty"`
 }
 
 var TimeCard = make(map[int]*Employee)
@@ -67,7 +66,23 @@ func GetEmployeeHandler(ctx echo.Context) error {
 	id, _ := strconv.Atoi(ctx.Param("id"))
 	log.Printf("Getting timecard information for employee: %s", TimeCard[id].Name)
 	return ctx.JSON(http.StatusOK, TimeCard[id])
+}
 
+func GetAllEmployeeHandler(ctx echo.Context) error {
+	allEmployees := make([]Employee, 0)
+
+	for _, e := range TimeCard {
+		allEmployees = append(allEmployees, Employee{e.Name, e.EmployeeID, e.ClockIn, e.ClockOut, e.TotalTime, e.DateOfBirth})
+	}
+
+	return ctx.JSON(http.StatusOK, allEmployees)
+}
+
+func DeleteEmployeeHandler(ctx echo.Context) error {
+	id, _ := strconv.Atoi(ctx.Param("id"))
+	log.Printf("Removing employee: %d from database.", TimeCard[id].EmployeeID)
+	delete(TimeCard, id)
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 func ClockInHandler(ctx echo.Context) error {
@@ -75,10 +90,6 @@ func ClockInHandler(ctx echo.Context) error {
 	log.Printf("Employee name is : %s", TimeCard[id].Name)
 
 	employee := TimeCard[id]
-
-	// if !employeeExists(id) {
-	// 	return echo.NewHTTPError(http.StatusBadRequest, "Employee ID doesn't exist so you cannot clock in")
-	// }
 
 	employeeClockIn(id)
 
@@ -88,17 +99,11 @@ func ClockInHandler(ctx echo.Context) error {
 		"clockIn":    employee.ClockIn,
 	}
 
-	// if employee.ClockIn != "" && employee.ClockOut == "" {
-	// 	return echo.NewHTTPError(http.StatusBadRequest, "Cannot Clock in again without clocking out first")
-	// }
-
 	return ctx.JSON(http.StatusAccepted, m)
 }
 
 func ClockOutHandler(ctx echo.Context) error {
 	id, _ := strconv.Atoi(ctx.Param("id"))
-	log.Printf("Employee name is : %s", TimeCard[id].Name)
-
 	employee := TimeCard[id]
 
 	employeeClockOut(id)
