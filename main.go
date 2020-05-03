@@ -17,9 +17,11 @@ func main() {
 
 	//routes
 	e.POST("/employees", CreateEmployeeHandler)
+	e.GET("/employees", GetAllEmployeeHandler)
 	e.GET("/employees/:id", GetEmployeeHandler)
 	e.POST("/employees/ClockIn/:id", ClockInHandler)
-	e.POST("employees/ClockOut/:id", ClockOutHandler)
+	e.POST("/employees/ClockOut/:id", ClockOutHandler)
+	e.DELETE("/employees/:id", DeleteEmployeeHandler)
 
 	log.Printf("listening on port 8080")
 	e.Logger.Fatal((e.Start(":8080")))
