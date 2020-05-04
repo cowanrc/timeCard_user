@@ -63,7 +63,18 @@ func CreateEmployeeHandler(ctx echo.Context) error {
 }
 
 func GetEmployeeHandler(ctx echo.Context) error {
-	id, _ := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(ctx.Param("id"))
+
+	if err != nil {
+		log.Printf("User must provide integer")
+		return echo.NewHTTPError(http.StatusBadRequest, "User must provide an integer for an ID")
+	}
+
+	if !employeeExists(id) {
+		log.Printf("Employee ID: %d does not exist in our system. Either this employee has been removed or has yet to be added.", id)
+		return echo.NewHTTPError(http.StatusNotFound, "Employee ID: "+strconv.Itoa(id)+" does not exist in our system. Either this employee has been removed or has yet to be added.")
+	}
+
 	log.Printf("Getting timecard information for employee: %s", TimeCard[id].Name)
 	return ctx.JSON(http.StatusOK, TimeCard[id])
 }
@@ -79,14 +90,36 @@ func GetAllEmployeeHandler(ctx echo.Context) error {
 }
 
 func DeleteEmployeeHandler(ctx echo.Context) error {
-	id, _ := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		log.Printf("User must provide integer")
+		return echo.NewHTTPError(http.StatusBadRequest, "User must provide an integer for an ID")
+	}
+
+	if !employeeExists(id) {
+		log.Printf("Employee ID: %d does not exist in our system. Either this employee has been removed or has yet to be added.", id)
+		return echo.NewHTTPError(http.StatusNotFound, "Employee ID: "+strconv.Itoa(id)+" does not exist in our system. Either this employee has been removed or has yet to be added.")
+	}
+
 	log.Printf("Removing employee: %d from database.", TimeCard[id].EmployeeID)
 	delete(TimeCard, id)
+
 	return ctx.NoContent(http.StatusNoContent)
 }
 
 func ClockInHandler(ctx echo.Context) error {
-	id, _ := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(ctx.Param("id"))
+
+	if err != nil {
+		log.Printf("User must provide integer")
+		return echo.NewHTTPError(http.StatusBadRequest, "User must provide an integer for an ID")
+	}
+
+	if !employeeExists(id) {
+		log.Printf("Employee ID: %d does not exist in our system. Either this employee has been removed or has yet to be added.", id)
+		return echo.NewHTTPError(http.StatusNotFound, "Employee ID: "+strconv.Itoa(id)+" does not exist in our system. Either this employee has been removed or has yet to be added.")
+	}
+
 	log.Printf("Employee name is : %s", TimeCard[id].Name)
 
 	employee := TimeCard[id]
@@ -103,8 +136,22 @@ func ClockInHandler(ctx echo.Context) error {
 }
 
 func ClockOutHandler(ctx echo.Context) error {
-	id, _ := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(ctx.Param("id"))
 	employee := TimeCard[id]
+
+	if err != nil {
+		log.Printf("User must provide integer")
+		return echo.NewHTTPError(http.StatusBadRequest, "User must provide an integer for an ID")
+	}
+
+	if !employeeExists(id) {
+		log.Printf("Employee ID: %d does not exist in our system. Either this employee has been removed or has yet to be added.", id)
+		return echo.NewHTTPError(http.StatusNotFound, "Employee ID: "+strconv.Itoa(id)+" does not exist in our system. Either this employee has been removed or has yet to be added.")
+	}
+
+	if employee.ClockIn == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "User must first clock in before they can clock out.")
+	}
 
 	employeeClockOut(id)
 
