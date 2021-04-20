@@ -109,6 +109,7 @@ func DeleteEmployeeHandler(ctx echo.Context) error {
 
 func ClockInHandler(ctx echo.Context) error {
 	id, err := strconv.Atoi(ctx.Param("id"))
+	employee := TimeCard[id]
 
 	if err != nil {
 		log.Printf("User must provide integer")
@@ -122,7 +123,10 @@ func ClockInHandler(ctx echo.Context) error {
 
 	log.Printf("Employee name is : %s", TimeCard[id].Name)
 
-	employee := TimeCard[id]
+	if employee.ClockIn != "" && employee.ClockOut == "" {
+		log.Printf("User attempted to clock in multiple times without clocking out")
+		return echo.NewHTTPError(http.StatusBadRequest, "User cannot clock in multiple times before clocking out once.")
+	}
 
 	employeeClockIn(id)
 
@@ -151,6 +155,8 @@ func ClockOutHandler(ctx echo.Context) error {
 
 	if employee.ClockIn == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "User must first clock in before they can clock out.")
+	} else if employee.ClockOut != "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "You cannot clock out multiple times.")
 	}
 
 	employeeClockOut(id)
