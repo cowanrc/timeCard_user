@@ -156,7 +156,7 @@ func ClockOutHandler(ctx echo.Context) error {
 	if employee.ClockIn == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "User must first clock in before they can clock out.")
 	} else if employee.ClockOut != "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "You cannot clock out multiple times.")
+		return echo.NewHTTPError(http.StatusBadRequest, "You cannot clock out multiple times. Without Clocking in again first")
 	}
 
 	employeeClockOut(id)

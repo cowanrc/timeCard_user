@@ -17,3 +17,11 @@ This starts the application locally and allows access to the Swagger UI at :8080
 4. POST /employees/ClockIn/{id} takes the employeeID as the parameter and returns the time the employee clocked in UTC
 5. POST /employees/ClockOut/{id} takes the employeeID and returns the clock in and clock out time
 6. DELETE /employees/{id} deletes the employee's information
+
+## Tests
+
+To run tests, run this command in your terminal in the directory
+
+`
+go test -v
+`

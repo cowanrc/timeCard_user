@@ -97,7 +97,7 @@ paths:
   /employees/ClockIn/{id}:
     post:
       tags:
-        - "timecard"
+        - "employee"
       summary: "Allows you to clock in"
       description: ""
       operationId: "getClockIn"
@@ -127,7 +127,7 @@ paths:
   /employees/ClockOut/{id}:
     post:
       tags:
-        - "timecard"
+        - "employee"
       summary: "Allows you to clock in"
       description: ""
       operationId: "getClockOut"
