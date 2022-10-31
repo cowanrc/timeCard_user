@@ -1,0 +1,31 @@
+package employee
+
+import (
+	"net/http"
+
+	"timeCard/domain/employees"
+	"timeCard/services"
+
+	"github.com/gin-gonic/gin"
+
+	errors "timeCard/utils"
+)
+
+//CreateEmployeeHandler to enter name and DOB and get an employee ID in return
+func HandleCreateEmployee(c *gin.Context) {
+	var employee employees.Employee
+
+	if err := c.ShouldBindJSON(&employee); err != nil {
+		restErr := errors.NewBadRequestError("invalid json body")
+		c.JSON(restErr.Status, restErr)
+		return
+	}
+
+	result, saveErr := services.EmployeeService.CreateEmployee(employee)
+	if saveErr != nil {
+		c.JSON(saveErr.Status, saveErr)
+		return
+	}
+
+	c.JSON(http.StatusCreated, result)
+}
