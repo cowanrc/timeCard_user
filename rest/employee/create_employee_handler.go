@@ -5,10 +5,9 @@ import (
 
 	"timeCard/domain/employees"
 	"timeCard/services"
+	"timeCard/utils/errors"
 
 	"github.com/gin-gonic/gin"
-
-	errors "timeCard/utils"
 )
 
 //CreateEmployeeHandler to enter name and DOB and get an employee ID in return
