@@ -11,6 +11,7 @@ const (
 	queryInsertEmployee = "INSERT INTO employees(firstName, lastName, dateCreated) VALUES(?, ?, ?);"
 	queryGetEmployees   = "SELECT * FROM employees;"
 	queryGetEmployee    = "SELECT id, firstName, lastName, dateCreated FROM employees WHERE id=?;"
+	queryDeleteEmployee = "DELETE FROM employees WHERE id=?;"
 )
 
 func (employee *Employee) Save() *errors.RestErr {
@@ -85,6 +86,23 @@ func (employee *Employee) Get() *errors.RestErr {
 	if getErr := result.Scan(&employee.ID, &employee.FirstName, &employee.LastName, &employee.DateCreated); getErr != nil {
 		logger.Error("error when trying to get employee by ID", getErr)
 		return errors.NewInternalServerError("database error")
+	}
+
+	return nil
+}
+
+func (employee *Employee) Delete() *errors.RestErr {
+	stmt, err := employees_db.Client.Prepare(queryDeleteEmployee)
+	if err != nil {
+		logger.Error("error when trying to prepare delete employee statement", err)
+		return errors.NewInternalServerError("database error")
+	}
+
+	defer stmt.Close()
+
+	if _, err := stmt.Exec(employee.ID); err != nil {
+		logger.Error("error when trying to get user from database", err)
+		return errors.NewNotFoundError("Employee does not exist")
 	}
 
 	return nil

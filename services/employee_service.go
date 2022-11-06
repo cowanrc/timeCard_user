@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"timeCard/domain/employees"
 	"timeCard/utils/date_utils"
 	"timeCard/utils/errors"
@@ -16,6 +17,7 @@ type employeesServiceInterface interface {
 	CreateEmployee(employees.Employee) (*employees.Employee, *errors.RestErr)
 	GetAllEmployees() (employees.Employees, *errors.RestErr)
 	GetEmployee(int64) (*employees.Employee, *errors.RestErr)
+	DeleteEmployee(int64) *errors.RestErr
 }
 
 func (s *employeesService) CreateEmployee(employee employees.Employee) (*employees.Employee, *errors.RestErr) {
@@ -41,4 +43,14 @@ func (s *employeesService) GetEmployee(employeeId int64) (*employees.Employee, *
 	}
 
 	return result, nil
+}
+
+func (s *employeesService) DeleteEmployee(employeeId int64) *errors.RestErr {
+	employee := &employees.Employee{ID: employeeId}
+	_, err := EmployeeService.GetEmployee(employee.ID)
+	if err != nil {
+		return errors.NewNotFoundError(fmt.Sprintf("Employee ID %d does not exist", employeeId))
+	}
+
+	return employee.Delete()
 }
