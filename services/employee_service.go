@@ -48,6 +48,7 @@ func (s *employeesService) GetEmployee(employeeId int64) (*employees.Employee, *
 func (s *employeesService) DeleteEmployee(employeeId int64) *errors.RestErr {
 	employee := &employees.Employee{ID: employeeId}
 	_, err := EmployeeService.GetEmployee(employee.ID)
+
 	if err != nil {
 		return errors.NewNotFoundError(fmt.Sprintf("Employee ID %d does not exist", employeeId))
 	}
