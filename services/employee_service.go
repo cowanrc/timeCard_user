@@ -2,9 +2,9 @@ package services
 
 import (
 	"fmt"
-	"timeCard/domain/employees"
-	"timeCard/utils/date_utils"
-	"timeCard/utils/errors"
+	"timeCard_user/domain/employees"
+	"timeCard_user/utils/date_utils"
+	"timeCard_user/utils/errors"
 )
 
 var (
@@ -48,6 +48,7 @@ func (s *employeesService) GetEmployee(employeeId int64) (*employees.Employee, *
 func (s *employeesService) DeleteEmployee(employeeId int64) *errors.RestErr {
 	employee := &employees.Employee{ID: employeeId}
 	_, err := EmployeeService.GetEmployee(employee.ID)
+
 	if err != nil {
 		return errors.NewNotFoundError(fmt.Sprintf("Employee ID %d does not exist", employeeId))
 	}
