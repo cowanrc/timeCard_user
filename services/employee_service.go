@@ -2,9 +2,9 @@ package services
 
 import (
 	"fmt"
-	"timeCard/domain/employees"
-	"timeCard/utils/date_utils"
-	"timeCard/utils/errors"
+	"timeCard_user/domain/employees"
+	"timeCard_user/utils/date_utils"
+	"timeCard_user/utils/errors"
 )
 
 var (

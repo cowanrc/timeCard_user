@@ -3,8 +3,8 @@ package employee
 import (
 	"net/http"
 	"strconv"
-	"timeCard/services"
-	"timeCard/utils/errors"
+	"timeCard_user/services"
+	"timeCard_user/utils/errors"
 
 	"github.com/gin-gonic/gin"
 )

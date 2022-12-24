@@ -3,14 +3,14 @@ package employee
 import (
 	"net/http"
 
-	"timeCard/domain/employees"
-	"timeCard/services"
-	"timeCard/utils/errors"
+	"timeCard_user/domain/employees"
+	"timeCard_user/services"
+	"timeCard_user/utils/errors"
 
 	"github.com/gin-gonic/gin"
 )
 
-//CreateEmployeeHandler to enter name and DOB and get an employee ID in return
+// CreateEmployeeHandler to enter name and DOB and get an employee ID in return
 func HandleCreateEmployee(c *gin.Context) {
 	var employee employees.Employee
 

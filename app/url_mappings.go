@@ -1,7 +1,7 @@
 package app
 
 import (
-	"timeCard/rest/employee"
+	"timeCard_user/rest/employee"
 )
 
 func mapUrls() {

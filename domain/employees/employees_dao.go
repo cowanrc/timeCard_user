@@ -1,9 +1,9 @@
 package employees
 
 import (
-	"timeCard/datasources/mysql/employees_db"
-	"timeCard/logger"
-	"timeCard/utils/errors"
+	"timeCard_user/datasources/mysql/employees_db"
+	"timeCard_user/logger"
+	"timeCard_user/utils/errors"
 )
 
 const (
